@@ -41,3 +41,4 @@ out/
 
 ### Configurações locais ###
 application-local.properties
+.env

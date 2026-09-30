@@ -25,6 +25,11 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("tools.jackson.module:jackson-module-kotlin")
+	// Só o módulo de hash: BCrypt para senha, sem ativar o filtro de
+	// segurança do Spring (a API usa o cabeçalho Authorization).
+	implementation("org.springframework.security:spring-security-crypto")
+	// Valida o ID token do Google no login por Firebase.
+	implementation("com.google.firebase:firebase-admin:9.11.0")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-validation-test")

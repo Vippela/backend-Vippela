@@ -23,11 +23,13 @@ class VinculoIntegrationTests {
     @Autowired lateinit var vinculoRepo: VinculoFamiliarRepository
     @Autowired lateinit var conviteRepo: ConviteVinculoRepository
     @Autowired lateinit var dispositivoRepo: DispositivoRepository
+    @Autowired lateinit var sessaoRepo: SessaoContaRepository
 
     @BeforeEach
     fun limpar() {
         // Ordem importa por causa das foreign keys.
         dispositivoRepo.deleteAll()
+        sessaoRepo.deleteAll()
         conviteRepo.deleteAll()
         vinculoRepo.deleteAll()
         usuarioRepo.deleteAll()

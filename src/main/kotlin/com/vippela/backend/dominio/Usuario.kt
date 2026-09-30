@@ -16,17 +16,21 @@ data class Usuario(
     @Column(name = "id_usuario")
     val id: UUID? = null,
 
+    @Column(name = "nome", nullable = false, length = 50)
     val nome: String,
 
     @Column(name = "data_nascimento")
-    val dataNascimento: LocalDate,
+    val dataNascimento: LocalDate? = null,
 
+    // O Postgres usa CITEXT (único sem diferenciar caixa). As anotações
+    // reproduzem isso no schema que o Hibernate cria nos testes em H2.
+    @Column(name = "email", nullable = false, unique = true)
     val email: String,
 
     @Column(name = "senha_hash")
     val senhaHash: String? = null,
 
-    @Column(name = "google_uid")
+    @Column(name = "google_uid", length = 128, unique = true)
     val googleUid: String? = null,
 
     @Enumerated(EnumType.STRING)

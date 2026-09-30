@@ -1,10 +1,39 @@
-# Vippela — vínculo e regras de aplicativos
+# Vippela — cadastro, vínculo e regras de aplicativos
 
 O responsável gera um código válido por cinco minutos; o familiar confirma no próprio aparelho. Cada vínculo ativo recebe uma lista de aplicativos e regras independentes. As regras são persistidas no PostgreSQL. Códigos antigos do protótipo devem ser substituídos por um novo vínculo.
 
+## Cadastro e login
+
+Contas existem no servidor: nome, e-mail, senha com hash BCrypt e tipo de conta (responsável ou familiar). O login devolve um token de sessão de 256 bits, guardado apenas como SHA-256 em `sessao_conta`; o logout o revoga e o token expira sozinho. O app manda esse token em `Authorization: Bearer`.
+
+- `POST /auth/register` — corpo `{nome, email, senha, tipoConta}` → 201 com `{id, nome, email, tipoConta, token, expiraEm}`.
+- `POST /auth/login` — corpo `{email, senha}` → o mesmo formato, 200.
+- `POST /auth/google` — corpo `{idToken, tipoConta, nome}` valida o ID token do Firebase no servidor e cria a conta se o e-mail ainda não existir. Sem `VIPPELA_GOOGLE_CREDENTIALS` responde 503.
+- `GET /auth/me` — exige `Authorization: Bearer`; 401 quando o token está revogado ou expirado.
+- `POST /auth/logout` — revoga o token informado; 204.
+- `GET /auth/existe?email=` — só para o app escolher entre login e cadastro.
+
+E-mail repetido responde 409, credencial errada 401 sem distinguir e-mail inexistente de senha errada, campo inválido 400 e mais de `VIPPELA_AUTH_MAX_TENTATIVAS` tentativas na janela responde 429. Nenhuma resposta devolve hash de senha ou o token de outra pessoa.
+
+Antes de subir, rode `db/vippela_auth.sql` no Supabase: ele cria `sessao_conta` e deixa `usuario.data_nascimento` opcional (o cadastro não coleta data de nascimento).
+
 ## Executar
 
-Configure PostgreSQL e informe `VIPPELA_DB_PASSWORD`. `VIPPELA_DB_USER` (padrão `postgres`), `VIPPELA_DB_URL` (padrão `jdbc:postgresql://localhost:5432/vippela_db`) e `PORT` (padrão `8080`) são opcionais. A senha não está embutida no projeto nem no JAR.
+O banco é o PostgreSQL do Supabase, sempre por variáveis de ambiente. Copie `.env.example` e preencha:
+
+| Variável | Padrão | Para que serve |
+| --- | --- | --- |
+| `SUPABASE_DB_URL` | — | `jdbc:postgresql://db.<ref>.supabase.co:5432/postgres?sslmode=require` na conexão direta, ou o host do Supavisor (`aws-0-<regiao>.pooler.supabase.com:5432`, usuário `postgres.<ref>`) se a rede for só IPv4. |
+| `SUPABASE_DB_USER` | — | `postgres`. |
+| `SUPABASE_DB_PASSWORD` | — | Senha do projeto, em Settings → Database do painel. |
+| `DB_POOL_SIZE` | `5` | Conexões do Hikari. Planes gratuitos do Supabase aceitam poucas. |
+| `PORT` | `8080` | Porta HTTP. |
+| `VIPPELA_AUTH_TTL_HOURS` | `720` | Validade da sessão. |
+| `VIPPELA_AUTH_MAX_TENTATIVAS` | `10` | Tentativas de login/cadastro por IP na janela. |
+| `VIPPELA_AUTH_JANELA_MINUTOS` | `15` | Tamanho da janela do limite. |
+| `VIPPELA_GOOGLE_CREDENTIALS` | vazio | Caminho do JSON de service account do Firebase. |
+
+Sem `SUPABASE_DB_URL`, o backend aceita `VIPPELA_DB_URL`/`VIPPELA_DB_USER`/`VIPPELA_DB_PASSWORD` para um PostgreSQL local. A senha não está embutida no projeto nem no JAR, e `.env` está no `.gitignore`.
 
 Use `bash gradlew bootRun` ou `java -jar build/libs/backend-0.0.1-SNAPSHOT.jar`. O Gradle utiliza o toolchain Java 17 para compilar a aplicação.
 
