@@ -38,3 +38,14 @@ out/
 
 ### Kotlin ###
 .kotlin
+
+# Configuração local do servidor
+/config/application.properties
+
+# Credenciais locais
+.env
+.env.*
+!.env.example
+*firebase-adminsdk*.json
+service-account*.json
+firebase-admin*.json
