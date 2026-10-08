@@ -86,6 +86,53 @@ class DeviceLinkService(private val repo: DeviceLinkRepository) {
         target.lastSeenAt = Instant.now()
         return view(target)
     }
+    fun report(id: UUID, key: String): UsageReport {
+        val target = link(id)
+        authorize(target.ownerKeyHash, key)
+        return reportView(target)
+    }
+    fun saveReport(id: UUID, key: String, request: UsageReport): UsageReport {
+        val target = link(id)
+        authorize(target.deviceKeyHash, key)
+        active(target)
+        val now = Instant.now().toEpochMilli()
+        val oldest = now - 32L * 86400000
+        val validZone = runCatching { java.time.ZoneId.of(request.zone) }.getOrNull()
+        if (validZone == null || request.collectedAt !in oldest..(now + 300000) ||
+            request.since !in oldest..request.collectedAt || request.buckets.size > 24000 ||
+            request.icons.size > 500 || request.icons.values.sumOf { it.length } > 1500000)
+            fail(HttpStatus.BAD_REQUEST, "Relatório inválido")
+        request.buckets.forEach { (bucket, millis) ->
+            val parts = bucket.split("|")
+            val date = parts.getOrNull(0)?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+            val hour = parts.getOrNull(1)?.toIntOrNull()
+            val start = date?.atStartOfDay(validZone)?.toInstant()?.toEpochMilli()
+            if (parts.size != 3 || start == null || start !in (oldest - 86400000)..now ||
+                hour == null || hour !in 0..23 || millis !in 0..7200000 ||
+                !parts[2].matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")))
+                fail(HttpStatus.BAD_REQUEST, "Estatística inválida")
+        }
+        request.icons.forEach { (pkg, icon) ->
+            val bytes = runCatching { java.util.Base64.getDecoder().decode(icon) }.getOrNull()
+            if (!target.apps.containsKey(pkg) || icon.length > 12000 || bytes == null || bytes.size < 24 ||
+                !bytes.take(8).toByteArray().contentEquals(byteArrayOf(-119,80,78,71,13,10,26,10)) ||
+                java.nio.ByteBuffer.wrap(bytes,16,8).let { it.int !in 1..64 || it.int !in 1..64 })
+                fail(HttpStatus.BAD_REQUEST, "Ícone inválido")
+        }
+        if ((target.usageUpdatedAt?.toEpochMilli() ?: 0) > request.collectedAt) return reportView(target)
+        target.usagePermission = request.permission
+        target.usageUpdatedAt = Instant.ofEpochMilli(request.collectedAt)
+        target.usageSince = Instant.ofEpochMilli(request.since)
+        target.usageZone = request.zone
+        target.usage.clear()
+        if (request.permission) target.usage.putAll(request.buckets)
+        target.icons.clear()
+        target.icons.putAll(request.icons)
+        return reportView(target)
+    }
+    private fun reportView(link: DeviceLink) = UsageReport(link.usagePermission,
+        link.usageUpdatedAt?.toEpochMilli() ?: 0, link.usageSince?.toEpochMilli() ?: 0,
+        link.usageZone, link.usage.toMap(), link.icons.toMap())
     private fun view(link: DeviceLink) = LinkView(link.id.toString(), link.memberKey.orEmpty(), link.memberName.orEmpty(),
         link.ownerName.orEmpty(), link.linkedDeviceId, link.status, link.revision, link.appliedRevision,
         link.protectionEnabled, link.lastSeenAt?.toString(), link.apps.map { AppInfo(it.key, it.value) }.sortedBy { it.label }, link.blockedPackages.toSet())

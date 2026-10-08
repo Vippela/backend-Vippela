@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: vippela-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: JAVA_TOOL_OPTIONS
+        value: "-XX:MaxRAMPercentage=60"
+      - key: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+        value: "5"
+      - key: SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT
+        value: "5000"
+      - key: VIPPELA_DB_URL
+        sync: false
+      - key: VIPPELA_DB_USER
+        sync: false
+      - key: VIPPELA_DB_PASSWORD
+        sync: false

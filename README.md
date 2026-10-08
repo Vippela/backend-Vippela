@@ -67,3 +67,9 @@ O `.env` usa a sintaxe de Java properties: `CHAVE=valor`, sem aspas, sem `export
 `.env` e variantes locais são ignorados pelo Git; somente `.env.example`, sem credenciais, deve ser versionado. O arquivo local foi criado com permissão 600. Nunca coloque credenciais do banco ou uma chave administrativa Firebase no app Android. O `google-services.json` continua sendo a configuração pública de cliente usada pelo plugin Google Services e permanece ignorado no repositório Android.
 
 Os testes usam H2 com configurações próprias, sem conectar ao Supabase. O antigo `config/application.properties` local usado apenas para o caminho Firebase foi substituído pelo `.env`.
+
+## Relatórios e publicação — Android 0.7.0
+
+`PUT /links/{id}/report` recebe o relatório e ícones do aparelho com X-Device-Key; `GET /links/{id}/report` permite a leitura ao responsável com X-Owner-Key. O endpoint valida tamanho, datas, duração e dimensões dos PNGs. Dados e ícones são guardados nas coleções link_usage/link_icons, separadas por vínculo. Relatórios antigos não substituem novos. A sincronização de bloqueios permanece compatível com clientes anteriores.
+
+A publicação do backend Java conectado ao banco Supabase está documentada em [docs/PUBLICAR_BACKEND.md](docs/PUBLICAR_BACKEND.md). O Dockerfile não incorpora o .env ou as credenciais administrativas. O deploy não é automático.

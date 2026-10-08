@@ -40,8 +40,22 @@ class DeviceLinkController(private val service: DeviceLinkService) {
         limit(http.remoteAddr)
         return service.confirm(key, request)
     }
+    @GetMapping("/{id}/report")
+    fun report(@PathVariable id: UUID, @RequestHeader("X-Owner-Key") key: String) = service.report(id, key)
+    @PutMapping("/{id}/report")
+    fun report(@PathVariable id: UUID, @RequestHeader("X-Device-Key") key: String,
+        @RequestBody request: UsageReport) = service.saveReport(id, key, request)
     @GetMapping fun list(@RequestHeader("X-Owner-Key") key: String) = service.list(key)
     @GetMapping("/{id}") fun status(@PathVariable id: UUID, @RequestHeader("X-Owner-Key") key: String) = service.ownerView(id, key)
     @PutMapping("/{id}/rule") fun update(@PathVariable id: UUID, @RequestHeader("X-Owner-Key") key: String, @RequestBody request: RuleRequest) = service.update(id, key, request)
     @PostMapping("/{id}/sync") fun sync(@PathVariable id: UUID, @RequestHeader("X-Device-Key") key: String, @RequestBody request: SyncRequest) = service.sync(id, key, request)
 }
+
+ data class UsageReport(
+    val permission: Boolean = false,
+    val collectedAt: Long = 0,
+    val since: Long = 0,
+    val zone: String = "UTC",
+    val buckets: Map<String, Long> = emptyMap(),
+    val icons: Map<String, String> = emptyMap(),
+ )

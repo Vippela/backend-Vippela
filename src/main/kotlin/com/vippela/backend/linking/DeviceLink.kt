@@ -25,6 +25,20 @@ class DeviceLink(
     var appliedRevision: Long = -1,
     var protectionEnabled: Boolean = false,
     var lastSeenAt: Instant? = null,
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    var usagePermission: Boolean = false,
+    var usageUpdatedAt: Instant? = null,
+    var usageSince: Instant? = null,
+    @Column(nullable = false, columnDefinition = "varchar(255) default 'UTC'")
+    var usageZone: String = "UTC",
+    @ElementCollection
+    @CollectionTable(name = "link_usage", joinColumns = [JoinColumn(name = "link_id")])
+    @MapKeyColumn(name = "bucket", length = 300) @Column(name = "milliseconds")
+    var usage: MutableMap<String, Long> = mutableMapOf(),
+    @ElementCollection
+    @CollectionTable(name = "link_icons", joinColumns = [JoinColumn(name = "link_id")])
+    @MapKeyColumn(name = "package_name") @Column(name = "png_base64", length = 12000)
+    var icons: MutableMap<String, String> = mutableMapOf(),
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "link_apps", joinColumns = [JoinColumn(name = "link_id")])
     @MapKeyColumn(name = "package_name") @Column(name = "app_label")

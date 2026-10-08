@@ -82,6 +82,24 @@ class DeviceLinkIntegrationTests {
         service.sync(id, child, SyncRequest(listOf(app), 0, false))
         assertFalse(service.ownerView(id, owner).protectionEnabled)
     }
+    @Test fun usageReportIsPrivateSurvivesReloadAndRejectsInvalidData() {
+        val id = UUID.fromString(pair().id)
+        service.sync(id, child, SyncRequest(listOf(app), 0, true))
+        val now = Instant.now().toEpochMilli()
+        val bucket = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString() + "|12|" + app.packageName
+        val report = UsageReport(true, now, now - 60000, "UTC", mapOf(bucket to 30000L))
+        service.saveReport(id, child, report)
+        assertEquals(report, service.report(id, owner))
+        assertEquals(403, assertThrows(ResponseStatusException::class.java) { service.report(id, other) }.statusCode.value())
+        assertEquals(403, assertThrows(ResponseStatusException::class.java) { service.saveReport(id, owner, report) }.statusCode.value())
+        assertEquals(400, assertThrows(ResponseStatusException::class.java) { service.saveReport(id, child, report.copy(buckets = mapOf(bucket to -1))) }.statusCode.value())
+        assertEquals(400, assertThrows(ResponseStatusException::class.java) { service.saveReport(id, child, report.copy(icons = mapOf(app.packageName to "not an image"))) }.statusCode.value())
+        service.saveReport(id, child, report.copy(collectedAt = now - 1, buckets = emptyMap()))
+        assertEquals(report.buckets, service.report(id, owner).buckets)
+        service.saveReport(id, child, report.copy(permission = false, collectedAt = now + 1))
+        assertTrue(service.report(id, owner).buckets.isEmpty())
+        assertFalse(service.report(id, owner).permission)
+    }
     @Test fun httpEndpointRequiresCredentialHeaderAndDoesNotExposeSecrets() {
         pair()
         val client = HttpClient.newHttpClient()

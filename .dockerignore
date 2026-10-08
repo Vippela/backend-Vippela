@@ -1,0 +1,9 @@
+.git
+.gradle
+build
+.env
+.env.*
+config
+*.json
+**/*firebase-adminsdk*.json
+**/service-account*.json
