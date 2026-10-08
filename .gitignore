@@ -39,10 +39,9 @@ out/
 ### Kotlin ###
 .kotlin
 
-# Configuração local do servidor
+### Configurações locais e credenciais ###
+application-local.properties
 /config/application.properties
-
-# Credenciais locais
 .env
 .env.*
 !.env.example

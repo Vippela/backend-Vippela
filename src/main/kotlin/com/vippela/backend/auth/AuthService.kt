@@ -1,68 +1,157 @@
 package com.vippela.backend.auth
 
-import org.springframework.http.HttpStatus
-import org.springframework.security.crypto.password.Pbkdf2PasswordEncoder
+import com.vippela.backend.dominio.SessaoConta
+import com.vippela.backend.dominio.TipoConta
+import com.vippela.backend.dominio.Usuario
+import com.vippela.backend.repositorio.SessaoContaRepository
+import com.vippela.backend.repositorio.UsuarioRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.server.ResponseStatusException
-import java.security.MessageDigest
-import java.security.SecureRandom
 import java.time.Instant
-import java.util.Base64
-import java.util.Locale
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+import java.util.concurrent.ConcurrentHashMap
 
+data class SessaoConcedida(
+    val usuario: Usuario,
+    val token: String,
+    val expiraEm: Instant
+)
+
+/** E-mail já cadastrado. A API transforma em 409. */
+class EmailEmUsoException : RuntimeException("Este e-mail já está cadastrado")
+
+/** E-mail ou senha conferidos sem sucesso. A API transforma em 401. */
+class CredenciaisInvalidasException : RuntimeException("E-mail ou senha incorretos")
+
+/** Muitas tentativas seguidas do mesmo endereço. A API transforma em 429. */
+class MuitasTentativasException : RuntimeException("Muitas tentativas. Aguarde alguns minutos")
+
+/**
+ * Cadastro e login com e-mail e senha. A sessão é um token opaco
+ * guardado apenas como hash em sessao_conta, então dá para revogar
+ * (logout) e expirar sem estado no servidor.
+ */
 @Service
 @Transactional
-class AuthService(private val users: AuthUsers, private val sessions: AuthSessions, private val google: GoogleTokenVerifier) {
-    private val passwords = Pbkdf2PasswordEncoder.defaultsForSpringSecurity_v5_8()
-    private val dummyHash = passwords.encode("invalid-login-placeholder")
-    private val random = SecureRandom()
-    private fun fail(status: HttpStatus, message: String): Nothing = throw ResponseStatusException(status, message)
-    private fun email(value: String) = value.trim().lowercase(Locale.ROOT)
-    private fun role(value: String): String {
-        if (value !in setOf("RESPONSAVEL", "FAMILIAR")) fail(HttpStatus.BAD_REQUEST, "Tipo de conta inválido")
-        return value
+class AuthService(
+    private val usuarioRepo: UsuarioRepository,
+    private val sessaoRepo: SessaoContaRepository,
+    private val senhas: SenhaHasher,
+    private val tokens: TokenService,
+    private val config: AuthConfiguracao
+) {
+    // Tentativas por IP, em memória: cobre a instalação inteira sem
+    // precisar de uma tabela extra. Reiniciar o backend zera a contagem.
+    private val tentativas = ConcurrentHashMap<String, MutableList<Instant>>()
+
+    fun cadastrar(
+        nome: String,
+        email: String,
+        senha: String,
+        tipoConta: TipoConta,
+        dataNascimento: LocalDate? = null,
+        ip: String? = null
+    ): SessaoConcedida {
+        conferirLimite("cadastro", ip)
+        val endereco = normalizar(email)
+        if (usuarioRepo.existsByEmailIgnoreCase(endereco)) {
+            registrarFalha("cadastro", ip)
+            throw EmailEmUsoException()
+        }
+
+        val usuario = usuarioRepo.save(
+            Usuario(
+                nome = nome.trim(),
+                dataNascimento = dataNascimento,
+                email = endereco,
+                senhaHash = senhas.gerar(senha),
+                tipoConta = tipoConta
+            )
+        )
+        limparTentativas("cadastro", ip)
+        return abrirSessao(usuario)
     }
-    private fun digest(token: String) = MessageDigest.getInstance("SHA-256").digest(token.toByteArray()).joinToString("") { "%02x".format(it) }
-    private fun response(user: AuthUser, session: AuthSession, token: String? = null) = SessionResponse(user.id.toString(), user.nome, user.email, user.tipoConta, token, session.expiraEm.toString())
-    private fun issue(user: AuthUser): SessionResponse {
-        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also(random::nextBytes))
-        val session = sessions.save(AuthSession(digest(token), user.id, Instant.now().plusSeconds(7 * 24 * 3600)))
-        return response(user, session, token)
+
+    fun entrar(email: String, senha: String, ip: String?): SessaoConcedida {
+        conferirLimite("login", ip)
+        val endereco = normalizar(email)
+        val usuario = usuarioRepo.findByEmailIgnoreCase(endereco)
+        // A mesma resposta para e-mail inexistente e senha errada: não
+        // entregamos ao atacante a lista de quem tem conta.
+        if (usuario == null || !senhas.confere(senha, usuario.senhaHash)) {
+            registrarFalha("login", ip)
+            throw CredenciaisInvalidasException()
+        }
+        limparTentativas("login", ip)
+        return abrirSessao(usuario)
     }
-    fun register(request: RegisterRequest): SessionResponse {
-        val address = email(request.email)
-        if (users.existsByEmail(address)) fail(HttpStatus.CONFLICT, "E-mail já cadastrado")
-        val user = users.saveAndFlush(AuthUser(nome = request.nome.trim(), email = address, senhaHash = passwords.encode(request.senha), tipoConta = role(request.tipoConta)))
-        return issue(user)
+
+    /** Grava a sessão e devolve o token, que não aparece de novo. */
+    fun abrirSessao(usuario: Usuario): SessaoConcedida {
+        val token = tokens.gerarToken()
+        val agora = Instant.now()
+        val expiraEm = agora.plus(config.validadeHoras, ChronoUnit.HOURS)
+        sessaoRepo.save(
+            SessaoConta(
+                usuario = usuario,
+                tokenHash = tokens.hash(token),
+                criadoEm = agora,
+                expiraEm = expiraEm
+            )
+        )
+        return SessaoConcedida(usuario, token, expiraEm)
     }
-    fun login(request: LoginRequest): SessionResponse {
-        val user = users.findByEmail(email(request.email))
-        val matches = passwords.matches(request.senha, user?.senhaHash ?: dummyHash)
-        if (user?.senhaHash == null || !matches) fail(HttpStatus.UNAUTHORIZED, "E-mail ou senha incorretos")
-        return issue(user)
+
+    /** Sessão ativa para o token informado, ou null se estiver revogada/expirada. */
+    @Transactional(readOnly = true)
+    fun sessaoDe(token: String?): SessaoConcedida? {
+        if (token.isNullOrBlank()) return null
+        val agora = Instant.now()
+        val sessao = sessaoRepo.comUsuarioPorTokenHash(tokens.hash(token.trim())) ?: return null
+        if (!sessao.ativaEm(agora)) return null
+        return SessaoConcedida(sessao.usuario, token, sessao.expiraEm)
     }
-    fun google(request: GoogleRequest): SessionResponse {
-        val identity = google.verify(request.idToken)
-        val existing = users.findByGoogleUid(identity.uid)
-        if (existing != null) return issue(existing)
-        val address = email(identity.email)
-        if (users.existsByEmail(address)) fail(HttpStatus.CONFLICT, "Entre pelo método já cadastrado para este e-mail")
-        val name = (identity.nome ?: request.nome ?: "Usuário").trim().take(120).ifBlank { "Usuário" }
-        return issue(users.saveAndFlush(AuthUser(nome = name, email = address, googleUid = identity.uid, tipoConta = role(request.tipoConta))))
+
+    fun sair(token: String?) {
+        if (token.isNullOrBlank()) return
+        val agora = Instant.now()
+        sessaoRepo.findByTokenHash(tokens.hash(token.trim()))
+            ?.takeIf { it.ativaEm(agora) }
+            ?.also {
+                it.revogadoEm = agora
+                sessaoRepo.save(it)
+            }
     }
-    private fun session(header: String?): AuthSession {
-        val token = header?.takeIf { it.startsWith("Bearer ") }?.removePrefix("Bearer ")
-        if (token == null || !token.matches(Regex("[A-Za-z0-9_-]{43}"))) fail(HttpStatus.UNAUTHORIZED, "Sessão inválida")
-        val session = sessions.findById(digest(token)).orElse(null) ?: fail(HttpStatus.UNAUTHORIZED, "Sessão inválida")
-        if (!session.expiraEm.isAfter(Instant.now())) fail(HttpStatus.UNAUTHORIZED, "Sessão expirada")
-        return session
+
+    fun existeEmail(email: String) = usuarioRepo.existsByEmailIgnoreCase(normalizar(email))
+
+    private fun normalizar(email: String) = email.trim().lowercase()
+
+    private fun conferirLimite(escopo: String, ip: String?) {
+        if (ip == null) return
+        if (registrar(escopo, ip).size >= config.maxTentativas) throw MuitasTentativasException()
     }
-    fun me(header: String?): SessionResponse {
-        val session = session(header)
-        val user = users.findById(session.usuarioId).orElse(null) ?: fail(HttpStatus.UNAUTHORIZED, "Sessão inválida")
-        return response(user, session)
+
+    private fun registrarFalha(escopo: String, ip: String?) {
+        if (ip == null) return
+        synchronized(tentativas) {
+            val registro = registrar(escopo, ip)
+            registro.add(Instant.now())
+            tentativas[chave(escopo, ip)] = registro
+        }
     }
-    fun logout(header: String?) { sessions.delete(session(header)) }
-    fun exists(address: String) = users.existsByEmail(email(address))
+
+    private fun registrar(escopo: String, ip: String): MutableList<Instant> {
+        val limite = Instant.now().minus(config.janelaMinutos, ChronoUnit.MINUTES)
+        val existente = tentativas[chave(escopo, ip)]
+        return (existente ?: mutableListOf()).filter { it.isAfter(limite) }.toMutableList()
+    }
+
+    private fun limparTentativas(escopo: String, ip: String?) {
+        if (ip == null) return
+        synchronized(tentativas) { tentativas.remove(chave(escopo, ip)) }
+    }
+
+    private fun chave(escopo: String, ip: String) = "$escopo:$ip"
 }

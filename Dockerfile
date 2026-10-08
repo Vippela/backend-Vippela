@@ -1,14 +1,26 @@
-FROM eclipse-temurin:17-jdk AS build
-WORKDIR /src
-COPY gradlew settings.gradle.kts build.gradle.kts ./
-COPY gradle/wrapper ./gradle/wrapper
-COPY src ./src
-RUN bash gradlew --no-daemon bootJar -Pkotlin.compiler.execution.strategy=in-process
+# syntax=docker/dockerfile:1
 
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jdk-jammy AS build
+
+WORKDIR /workspace
+
+COPY gradlew gradlew.bat build.gradle.kts settings.gradle.kts ./
+COPY gradle ./gradle
+RUN chmod +x gradlew
+
+COPY src ./src
+RUN ./gradlew --no-daemon bootJar
+
+FROM eclipse-temurin:17-jre-jammy
+
+RUN groupadd --system vippela \
+    && useradd --system --gid vippela --home-dir /app --shell /usr/sbin/nologin vippela
+
 WORKDIR /app
-RUN useradd --uid 10001 --user-group --no-create-home vippela
-COPY --from=build /src/build/libs/backend-0.0.1-SNAPSHOT.jar /app/backend.jar
-USER 10001:1000
+COPY --from=build --chown=vippela:vippela /workspace/build/libs/backend-0.0.1-SNAPSHOT.jar ./backend.jar
+
+ENV PORT=8080
 EXPOSE 8080
+
+USER vippela
 ENTRYPOINT ["java", "-jar", "/app/backend.jar"]

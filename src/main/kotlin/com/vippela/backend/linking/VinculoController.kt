@@ -22,12 +22,12 @@ class VinculoController(private val service: VinculoService) {
     fun vinculoDuplicado(): Map<String, String> =
         mapOf("error" to "Este dispositivo ou vínculo já existe")
 
-    @PostMapping("/generate")
+    @PostMapping("/generate", headers = ["!X-Owner-Key"])
     fun gerar(@RequestBody request: GerarConviteRequest): ResponseEntity<ConviteGeradoResponse> {
         return ResponseEntity.ok(service.gerarConvite(request.nomeFamiliar))
     }
 
-    @PostMapping("/confirm")
+    @PostMapping("/confirm", headers = ["!X-Device-Key"])
     fun confirmar(@RequestBody request: ConfirmarConviteRequest): ResponseEntity<Any> {
         return try {
             val dispositivo = service.confirmarConvite(

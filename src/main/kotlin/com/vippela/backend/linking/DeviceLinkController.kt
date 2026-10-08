@@ -6,13 +6,13 @@ import org.springframework.web.bind.annotation.*
 import org.springframework.web.server.ResponseStatusException
 import java.util.UUID
 
- data class GenerateLinkRequest(val memberKey: String, val memberName: String, val ownerName: String)
- data class LinkCodeResponse(val id: String, val token: String, val expiresAt: String, val memberKey: String)
- data class ConfirmLinkRequest(val token: String, val deviceId: String)
- data class AppInfo(val packageName: String, val label: String)
- data class RuleRequest(val packageName: String, val blocked: Boolean)
- data class SyncRequest(val apps: List<AppInfo>, val appliedRevision: Long, val protectionEnabled: Boolean)
- data class LinkView(val id: String, val memberKey: String, val memberName: String, val ownerName: String,
+data class GenerateLinkRequest(val memberKey: String, val memberName: String, val ownerName: String)
+data class LinkCodeResponse(val id: String, val token: String, val expiresAt: String, val memberKey: String)
+data class ConfirmLinkRequest(val token: String, val deviceId: String)
+data class AppInfo(val packageName: String, val label: String)
+data class RuleRequest(val packageName: String, val blocked: Boolean)
+data class SyncRequest(val apps: List<AppInfo>, val appliedRevision: Long, val protectionEnabled: Boolean)
+data class LinkView(val id: String, val memberKey: String, val memberName: String, val ownerName: String,
     val linkedDeviceId: String?, val status: String, val revision: Long, val appliedRevision: Long,
     val protectionEnabled: Boolean, val lastSeenAt: String?, val apps: List<AppInfo>, val blockedPackages: Set<String>)
 
@@ -30,12 +30,12 @@ class DeviceLinkController(private val service: DeviceLinkService) {
         if (previous.second >= 10 || attempts.size >= 10000) throw ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Aguarde um minuto")
         attempts[ip] = previous.first to previous.second + 1
     }
-    @PostMapping("/generate")
+    @PostMapping("/generate", headers = ["X-Owner-Key"])
     fun generate(@RequestHeader("X-Owner-Key") key: String, @RequestBody request: GenerateLinkRequest, http: HttpServletRequest): LinkCodeResponse {
         limit(http.remoteAddr)
         return service.generate(key, request)
     }
-    @PostMapping("/confirm")
+    @PostMapping("/confirm", headers = ["X-Device-Key"])
     fun confirm(@RequestHeader("X-Device-Key") key: String, @RequestBody request: ConfirmLinkRequest, http: HttpServletRequest): LinkView {
         limit(http.remoteAddr)
         return service.confirm(key, request)

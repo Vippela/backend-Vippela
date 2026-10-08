@@ -1,12 +1,57 @@
-# Vippela — vínculo e regras de aplicativos
+# Vippela — cadastro, vínculo e regras de aplicativos
 
 O responsável gera um código válido por cinco minutos; o familiar confirma no próprio aparelho. Cada vínculo ativo recebe uma lista de aplicativos e regras independentes. As regras são persistidas no PostgreSQL. Códigos antigos do protótipo devem ser substituídos por um novo vínculo.
 
+## Cadastro e login
+
+Contas existem no servidor: nome, e-mail, senha com hash BCrypt e tipo de conta (responsável ou familiar). O login devolve um token de sessão de 256 bits, guardado apenas como SHA-256 em `sessao_conta`; o logout o revoga e o token expira sozinho. O app manda esse token em `Authorization: Bearer`.
+
+- `POST /auth/register` — corpo `{nome, email, senha, tipoConta}` → 201 com `{id, nome, email, tipoConta, token, expiraEm}`.
+- `POST /auth/login` — corpo `{email, senha}` → o mesmo formato, 200.
+- `POST /auth/google` — corpo `{idToken, tipoConta, nome}` valida o ID token do Firebase no servidor e cria a conta se o e-mail ainda não existir. Sem `VIPPELA_GOOGLE_CREDENTIALS` responde 503.
+- `GET /auth/me` — exige `Authorization: Bearer`; 401 quando o token está revogado ou expirado.
+- `POST /auth/logout` — revoga o token informado; 204.
+- `GET /auth/existe?email=` — só para o app escolher entre login e cadastro.
+
+E-mail repetido responde 409, credencial errada 401 sem distinguir e-mail inexistente de senha errada, campo inválido 400 e mais de `VIPPELA_AUTH_MAX_TENTATIVAS` tentativas na janela responde 429. Nenhuma resposta devolve hash de senha ou o token de outra pessoa.
+
+Antes de subir, rode `db/vippela_auth.sql` no Supabase: ele cria `sessao_conta` e deixa `usuario.data_nascimento` opcional (o cadastro não coleta data de nascimento).
+
 ## Executar
 
-Copie `.env.example` para `.env` na raiz do backend e preencha a conexão PostgreSQL. Informe `VIPPELA_DB_PASSWORD`. `VIPPELA_DB_USER` (padrão `postgres`), `VIPPELA_DB_URL` (padrão `jdbc:postgresql://localhost:5432/vippela_db`) e `PORT` (padrão `8080`) são opcionais. A senha não está embutida no projeto nem no JAR.
+O banco é o PostgreSQL do Supabase, sempre por variáveis de ambiente. Copie `.env.example` e preencha:
+
+| Variável | Padrão | Para que serve |
+| --- | --- | --- |
+| `SUPABASE_DB_URL` | — | `jdbc:postgresql://db.<ref>.supabase.co:5432/postgres?sslmode=require` na conexão direta, ou o host do Supavisor (`aws-0-<regiao>.pooler.supabase.com:5432`, usuário `postgres.<ref>`) se a rede for só IPv4. |
+| `SUPABASE_DB_USER` | — | `postgres`. |
+| `SUPABASE_DB_PASSWORD` | — | Senha do projeto, em Settings → Database do painel. |
+| `DB_POOL_SIZE` | `5` | Conexões do Hikari. Planes gratuitos do Supabase aceitam poucas. |
+| `PORT` | `8080` | Porta HTTP. |
+| `VIPPELA_AUTH_TTL_HOURS` | `720` | Validade da sessão. |
+| `VIPPELA_AUTH_MAX_TENTATIVAS` | `10` | Tentativas de login/cadastro por IP na janela. |
+| `VIPPELA_AUTH_JANELA_MINUTOS` | `15` | Tamanho da janela do limite. |
+| `VIPPELA_GOOGLE_CREDENTIALS` | vazio | Caminho do JSON de service account do Firebase. |
+
+Sem `SUPABASE_DB_URL`, o backend aceita `VIPPELA_DB_URL`/`VIPPELA_DB_USER`/`VIPPELA_DB_PASSWORD` para um PostgreSQL local. A senha não está embutida no projeto nem no JAR, e `.env` está no `.gitignore`.
+
+O backend carrega automaticamente um `.env` na raiz como arquivo Java properties. Use linhas `CHAVE=valor`, sem `export` e sem aspas; variáveis do processo e argumentos de inicialização têm prioridade. O caminho `VIPPELA_GOOGLE_CREDENTIALS` deve apontar para o JSON privado de uma conta de serviço Firebase fora do repositório. Variantes de `.env` e nomes comuns de credenciais Firebase também são ignorados pelo Git.
 
 Use `bash gradlew bootRun` ou `java -jar build/libs/backend-0.0.1-SNAPSHOT.jar`. O Gradle utiliza o toolchain Java 17 para compilar a aplicação.
+
+### Executar com Docker
+
+Com Docker Compose instalado, suba o backend e um PostgreSQL local com:
+
+```bash
+docker compose up --build
+```
+
+A API fica em `http://localhost:8080`. O banco é criado automaticamente para desenvolvimento e seus dados ficam no volume `vippela_postgres_data`. Para alterar porta ou credenciais, defina `PORT`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD` no `.env` antes de subir os serviços.
+
+Para parar os contêineres, use `docker compose down`. Esse comando preserva os dados; `docker compose down --volumes` também remove o banco local.
+
+O login com Google fica desativado no contêiner enquanto uma credencial Firebase não for montada e indicada por `VIPPELA_GOOGLE_CREDENTIALS`; cadastro e login com e-mail continuam funcionando normalmente.
 
 Instale a nova versão Android nos dois celulares. Em Perfil → Vínculo familiar → Configurar servidor, informe a mesma URL nos dois. Em teste local, use `http://IP_DO_COMPUTADOR:8080/` com os celulares na mesma rede e acesso à porta 8080. `10.0.2.2` só funciona no emulador. A versão Android release exige HTTPS.
 
@@ -25,7 +70,7 @@ A resposta de vínculo contém `id`, `memberKey`, `memberName`, `ownerName`, `li
 
 O Android cria chaves aleatórias de 256 bits, separadas por conta local/perfil/servidor. O servidor armazena apenas seus hashes. A chave do familiar não permite alterar regras; a do responsável não permite ler vínculos de outras chaves. Códigos são consumidos com bloqueio transacional; geração e confirmação têm limite de tentativas por IP nesta instância. As restrições únicas impedem dois vínculos ativos para o mesmo aparelho/conta ou mesmo familiar do responsável.
 
-O backend oferece autenticação de contas nas rotas `/auth` descritas abaixo. As rotas `/links` ainda usam credenciais de vínculo separadas, não o token Bearer da sessão. A mesma conta em outra instalação não recupera automaticamente suas chaves ou vínculos. Recuperação, transferência de aparelho, desvinculação e associação dos vínculos à identidade autenticada continuam pendentes. Em implantação pública, use HTTPS.
+Essa autorização usa credenciais de vínculo. Não é um servidor de cadastro/login: e-mail e perfis continuam locais, e tokens Google ainda não são validados por este backend. A mesma conta em outra instalação não recupera automaticamente suas chaves ou vínculos. Recuperação, transferência de aparelho e desvinculação ficam para a próxima etapa. Em implantação pública, use HTTPS e integre a identidade do backend à autenticação das contas.
 
 ## Confirmação e limites
 
@@ -38,38 +83,3 @@ Pedidos de liberação, tempo de tela, trilhas e relatórios anteriores continua
 ## Testes
 
 `bash gradlew test` usa H2 isolado, sem acessar o PostgreSQL do usuário. Cobre autorização entre famílias, consumo concorrente de códigos, expiração, regras, confirmações e cabeçalhos HTTP. A validação em dois aparelhos físicos continua necessária para comportamento em segundo plano e diferenças entre fabricantes.
-
-## Autenticação de contas
-
-- `POST /auth/register`: `{nome, email, senha, tipoConta}`; senha de 8 a 256 caracteres, tipo `RESPONSAVEL` ou `FAMILIAR`.
-- `POST /auth/login`: `{email, senha}`; o tipo vem da conta existente.
-- `POST /auth/google`: `{idToken, tipoConta, nome?}`; recebe o **ID token Firebase** gerado no Android, valida assinatura, expiração, revogação, e-mail verificado e provedor Google. O tipo informado só é usado ao criar a conta.
-- `GET /auth/me`: sessão atual com `Authorization: Bearer <token>`.
-- `POST /auth/logout`: revoga esse token e retorna 204.
-- `GET /auth/existe?email=...`: `{existe}`; limitado por IP junto das tentativas de autenticação.
-
-Cadastro e login retornam `{id, nome, email, tipoConta, token, expiraEm}`. `/auth/me` não retorna o token; o Android mantém o que já possui. Sessões duram sete dias. São persistidos apenas o hash do token e o hash PBKDF2 da senha, em `auth_sessao` e `auth_usuario`, sem alterar as tabelas do vínculo. E-mails são normalizados e únicos. Uma conta Google não é mesclada automaticamente a uma conta de senha com o mesmo e-mail.
-
-Para Google, configure `VIPPELA_GOOGLE_CREDENTIALS` com o caminho de um JSON de conta de serviço do mesmo projeto Firebase do Android. Esse arquivo é secreto, deve ficar fora do repositório e **não** é o `google-services.json` do app. Sem a configuração, apenas `/auth/google` retorna 503; cadastro/login por senha continuam disponíveis. Reinicie o servidor após configurá-lo. Consulte https://firebase.google.com/docs/auth/admin/verify-id-tokens.
-
-Os testes de autenticação usam H2 e um verificador Google substituto para testar as decisões de conta. Não comprovam um login Google real: esse teste exige a credencial do servidor e o fluxo no celular.
-
-## Configuração local com .env
-
-O backend carrega automaticamente `.env` da pasta em que é iniciado. Execute `bash gradlew bootRun` ou o JAR a partir da raiz de `backend-Vippela`; no IntelliJ/Android Studio, use essa pasta como diretório de trabalho. Não é necessário instalar biblioteca dotenv nem executar `source .env`. Variáveis de ambiente e argumentos de inicialização têm prioridade sobre os valores do arquivo.
-
-Preencha `VIPPELA_DB_URL`, `VIPPELA_DB_USER` e `VIPPELA_DB_PASSWORD` com os dados da conexão PostgreSQL disponibilizada pelo Supabase. A URL deve ser JDBC, no formato `jdbc:postgresql://HOST:PORTA/BANCO?sslmode=require`; use o host, porta, usuário e parâmetros da conexão escolhida no painel. A URL REST do projeto, a chave anon/publishable e a service_role não são usadas nesta integração JDBC.
-
-`VIPPELA_GOOGLE_CREDENTIALS` aponta para o JSON privado de conta de serviço Firebase, fora do repositório. `PORT` controla a porta HTTP. Os campos de banco ficam vazios até receberem as credenciais reais; não inicie o servidor antes de preenchê-los.
-
-O `.env` usa a sintaxe de Java properties: `CHAVE=valor`, sem aspas, sem `export` e sem comentário no final do valor. `#`, `$` e `=` dentro do valor são literais; barras invertidas devem ser duplicadas. Não use `source .env`. Senhas com a sequência `${...}` devem ser fornecidas pela variável de ambiente do processo para evitar interpretação como placeholder pelo Spring.
-
-`.env` e variantes locais são ignorados pelo Git; somente `.env.example`, sem credenciais, deve ser versionado. O arquivo local foi criado com permissão 600. Nunca coloque credenciais do banco ou uma chave administrativa Firebase no app Android. O `google-services.json` continua sendo a configuração pública de cliente usada pelo plugin Google Services e permanece ignorado no repositório Android.
-
-Os testes usam H2 com configurações próprias, sem conectar ao Supabase. O antigo `config/application.properties` local usado apenas para o caminho Firebase foi substituído pelo `.env`.
-
-## Relatórios e publicação — Android 0.7.0
-
-`PUT /links/{id}/report` recebe o relatório e ícones do aparelho com X-Device-Key; `GET /links/{id}/report` permite a leitura ao responsável com X-Owner-Key. O endpoint valida tamanho, datas, duração e dimensões dos PNGs. Dados e ícones são guardados nas coleções link_usage/link_icons, separadas por vínculo. Relatórios antigos não substituem novos. A sincronização de bloqueios permanece compatível com clientes anteriores.
-
-A publicação do backend Java conectado ao banco Supabase está documentada em [docs/PUBLICAR_BACKEND.md](docs/PUBLICAR_BACKEND.md). O Dockerfile não incorpora o .env ou as credenciais administrativas. O deploy não é automático.
