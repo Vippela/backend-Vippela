@@ -1,0 +1,44 @@
+name: vippela
+
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vippela_db}
+      POSTGRES_USER: ${POSTGRES_USER:-vippela}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vippela_local}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      VIPPELA_DB_URL: jdbc:postgresql://database:5432/${POSTGRES_DB:-vippela_db}
+      VIPPELA_DB_USER: ${POSTGRES_USER:-vippela}
+      VIPPELA_DB_PASSWORD: ${POSTGRES_PASSWORD:-vippela_local}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      PORT: 8080
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      VIPPELA_AUTH_TTL_HOURS: ${VIPPELA_AUTH_TTL_HOURS:-720}
+      VIPPELA_AUTH_MAX_TENTATIVAS: ${VIPPELA_AUTH_MAX_TENTATIVAS:-10}
+      VIPPELA_AUTH_JANELA_MINUTOS: ${VIPPELA_AUTH_JANELA_MINUTOS:-15}
+    ports:
+      - "${PORT:-8080}:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

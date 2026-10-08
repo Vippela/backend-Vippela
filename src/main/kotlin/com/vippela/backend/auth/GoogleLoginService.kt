@@ -62,7 +62,14 @@ class GoogleLoginService(
     }
 
     private fun decodificar(firebase: FirebaseAuth, idToken: String): FirebaseToken = try {
-        firebase.verifyIdToken(idToken.trim())
+        val token = firebase.verifyIdToken(idToken.trim(), true)
+        val provedor = (token.claims["firebase"] as? Map<*, *>)?.get("sign_in_provider")
+        if (!token.isEmailVerified || token.email.isNullOrBlank() || provedor != "google.com") {
+            throw TokenGoogleInvalidoException("Conta Google não verificada")
+        }
+        token
+    } catch (e: TokenGoogleInvalidoException) {
+        throw e
     } catch (e: Exception) {
         throw TokenGoogleInvalidoException(e.message)
     }

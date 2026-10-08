@@ -35,7 +35,23 @@ O banco é o PostgreSQL do Supabase, sempre por variáveis de ambiente. Copie `.
 
 Sem `SUPABASE_DB_URL`, o backend aceita `VIPPELA_DB_URL`/`VIPPELA_DB_USER`/`VIPPELA_DB_PASSWORD` para um PostgreSQL local. A senha não está embutida no projeto nem no JAR, e `.env` está no `.gitignore`.
 
+O backend carrega automaticamente um `.env` na raiz como arquivo Java properties. Use linhas `CHAVE=valor`, sem `export` e sem aspas; variáveis do processo e argumentos de inicialização têm prioridade. O caminho `VIPPELA_GOOGLE_CREDENTIALS` deve apontar para o JSON privado de uma conta de serviço Firebase fora do repositório. Variantes de `.env` e nomes comuns de credenciais Firebase também são ignorados pelo Git.
+
 Use `bash gradlew bootRun` ou `java -jar build/libs/backend-0.0.1-SNAPSHOT.jar`. O Gradle utiliza o toolchain Java 17 para compilar a aplicação.
+
+### Executar com Docker
+
+Com Docker Compose instalado, suba o backend e um PostgreSQL local com:
+
+```bash
+docker compose up --build
+```
+
+A API fica em `http://localhost:8080`. O banco é criado automaticamente para desenvolvimento e seus dados ficam no volume `vippela_postgres_data`. Para alterar porta ou credenciais, defina `PORT`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD` no `.env` antes de subir os serviços.
+
+Para parar os contêineres, use `docker compose down`. Esse comando preserva os dados; `docker compose down --volumes` também remove o banco local.
+
+O login com Google fica desativado no contêiner enquanto uma credencial Firebase não for montada e indicada por `VIPPELA_GOOGLE_CREDENTIALS`; cadastro e login com e-mail continuam funcionando normalmente.
 
 Instale a nova versão Android nos dois celulares. Em Perfil → Vínculo familiar → Configurar servidor, informe a mesma URL nos dois. Em teste local, use `http://IP_DO_COMPUTADOR:8080/` com os celulares na mesma rede e acesso à porta 8080. `10.0.2.2` só funciona no emulador. A versão Android release exige HTTPS.
 
