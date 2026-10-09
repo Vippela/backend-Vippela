@@ -38,7 +38,5 @@ data class RegisterRequest(
     @field:Size(min = 8, max = 256) val senha: String,
     val tipoConta: String,
 )
-data class LoginRequest(@field:NotBlank @field:Size(max = 254) val email: String, @field:Size(min = 1, max = 256) val senha: String)
-data class GoogleRequest(@field:NotBlank @field:Size(max = 16384) val idToken: String, val tipoConta: String, @field:Size(max = 120) val nome: String? = null)
 data class SessionResponse(val id: String, val nome: String, val email: String, val tipoConta: String, val token: String?, val expiraEm: String)
 data class GoogleIdentity(val uid: String, val email: String, val nome: String?)
