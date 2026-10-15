@@ -47,4 +47,8 @@ class DeviceLink(
     @CollectionTable(name = "link_blocked_apps", joinColumns = [JoinColumn(name = "link_id")])
     @Column(name = "package_name")
     var blockedPackages: MutableSet<String> = mutableSetOf(),
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "link_blocked_domains", joinColumns = [JoinColumn(name = "link_id")])
+    @Column(name = "domain", length = 253)
+    var blockedDomains: MutableSet<String> = mutableSetOf(),
 )

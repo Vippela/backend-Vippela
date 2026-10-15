@@ -57,6 +57,20 @@ class DeviceLinkIntegrationTests {
         assertEquals(403, assertThrows(ResponseStatusException::class.java) { service.update(id, other, RuleRequest(app.packageName, true)) }.statusCode.value())
         assertEquals(403, assertThrows(ResponseStatusException::class.java) { service.sync(id, other, SyncRequest(listOf(app), -1, true)) }.statusCode.value())
         assertEquals(403, assertThrows(ResponseStatusException::class.java) { service.update(id, child, RuleRequest(app.packageName, true)) }.statusCode.value())
+        assertEquals(403, assertThrows(ResponseStatusException::class.java) { service.updateDomain(id, other, DomainRuleRequest("youtube.com", true)) }.statusCode.value())
+    }
+    @Test fun domainRulesAreNormalizedValidatedAndTravelToTheChild() {
+        val id = UUID.fromString(pair().id)
+        val changed = service.updateDomain(id, owner, DomainRuleRequest("https://WWW.YouTube.com/watch?v=1", true))
+        assertEquals(setOf("youtube.com"), changed.blockedDomains)
+        assertEquals(1L, changed.revision)
+        assertEquals(changed.blockedDomains, service.sync(id, child, SyncRequest(emptyList(), 0, true)).blockedDomains)
+        assertEquals(400, assertThrows(ResponseStatusException::class.java) {
+            service.updateDomain(id, owner, DomainRuleRequest("pesquisa sem dominio", true))
+        }.statusCode.value())
+        val removed = service.updateDomain(id, owner, DomainRuleRequest("www.youtube.com", false))
+        assertTrue(removed.blockedDomains.isEmpty())
+        assertEquals(2L, removed.revision)
     }
     @Test fun aCodeCannotBeClaimedByTwoDevices() {
         val code = service.generate(owner, GenerateLinkRequest("1", "Ana", "Cleber"))

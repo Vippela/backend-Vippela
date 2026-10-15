@@ -15,7 +15,7 @@ Contas existem no servidor: nome, e-mail, senha com hash BCrypt e tipo de conta 
 
 E-mail repetido responde 409, credencial errada 401 sem distinguir e-mail inexistente de senha errada, campo inválido 400 e mais de `VIPPELA_AUTH_MAX_TENTATIVAS` tentativas na janela responde 429. Nenhuma resposta devolve hash de senha ou o token de outra pessoa.
 
-Antes de subir, rode `db/vippela_auth.sql` no Supabase: ele cria `sessao_conta` e deixa `usuario.data_nascimento` opcional (o cadastro não coleta data de nascimento).
+Antes de subir, rode `db/vippela_auth.sql` no Supabase: ele cria `sessao_conta` e deixa `usuario.data_nascimento` opcional (o cadastro não coleta data de nascimento). Para habilitar bloqueio de sites, rode também `db/vippela_site_blocking.sql` antes de publicar esta versão do backend.
 
 ## Executar
 
@@ -53,7 +53,7 @@ Para parar os contêineres, use `docker compose down`. Esse comando preserva os 
 
 O login com Google fica desativado no contêiner enquanto uma credencial Firebase não for montada e indicada por `VIPPELA_GOOGLE_CREDENTIALS`; cadastro e login com e-mail continuam funcionando normalmente.
 
-Instale a nova versão Android nos dois celulares. Em Perfil → Vínculo familiar → Configurar servidor, informe a mesma URL nos dois. Em teste local, use `http://IP_DO_COMPUTADOR:8080/` com os celulares na mesma rede e acesso à porta 8080. `10.0.2.2` só funciona no emulador. A versão Android release exige HTTPS.
+Instale a nova versão Android nos dois celulares. A partir do APK 0.7.2, o app usa `https://vippela-backend.onrender.com/` automaticamente. Para teste local, use **Alterar servidor** e informe `http://IP_DO_COMPUTADOR:8080/` nos dois celulares, na mesma rede e com acesso à porta 8080. `10.0.2.2` só funciona no emulador. A versão Android release exige HTTPS.
 
 No responsável, selecione o familiar e gere o código. No familiar, confirme o código, leia a explicação da proteção e ative **Proteção familiar Vippela** em Acessibilidade. Em Aplicativos, o responsável liga/desliga a permissão de cada app. O familiar sincroniza a cada cinco segundos enquanto o serviço de proteção está conectado; com a Vippela aberta também há sincronização.
 
@@ -64,19 +64,20 @@ No responsável, selecione o familiar e gere o código. No familiar, confirme o 
 - `GET /links`, cabeçalho `X-Owner-Key` → vínculos ativos desse responsável.
 - `GET /links/{id}`, cabeçalho `X-Owner-Key` → estado do vínculo.
 - `PUT /links/{id}/rule`, cabeçalho `X-Owner-Key`, corpo `{packageName, blocked}` → regra salva e revisão atualizada.
+- `PUT /links/{id}/domain-rule`, cabeçalho `X-Owner-Key`, corpo `{domain, blocked}` → domínio normalizado, regra salva e revisão atualizada.
 - `POST /links/{id}/sync`, cabeçalho `X-Device-Key`, corpo `{apps: [{packageName, label}], appliedRevision, protectionEnabled}` → regras atuais.
 
-A resposta de vínculo contém `id`, `memberKey`, `memberName`, `ownerName`, `linkedDeviceId`, `status`, `revision`, `appliedRevision`, `protectionEnabled`, `lastSeenAt`, `apps` e `blockedPackages`. Nenhuma resposta de consulta contém credenciais ou código de pareamento.
+A resposta de vínculo contém `id`, `memberKey`, `memberName`, `ownerName`, `linkedDeviceId`, `status`, `revision`, `appliedRevision`, `protectionEnabled`, `lastSeenAt`, `apps`, `blockedPackages` e `blockedDomains`. Nenhuma resposta de consulta contém credenciais, código de pareamento ou histórico de navegação.
 
 O Android cria chaves aleatórias de 256 bits, separadas por conta local/perfil/servidor. O servidor armazena apenas seus hashes. A chave do familiar não permite alterar regras; a do responsável não permite ler vínculos de outras chaves. Códigos são consumidos com bloqueio transacional; geração e confirmação têm limite de tentativas por IP nesta instância. As restrições únicas impedem dois vínculos ativos para o mesmo aparelho/conta ou mesmo familiar do responsável.
 
-Essa autorização usa credenciais de vínculo. Não é um servidor de cadastro/login: e-mail e perfis continuam locais, e tokens Google ainda não são validados por este backend. A mesma conta em outra instalação não recupera automaticamente suas chaves ou vínculos. Recuperação, transferência de aparelho e desvinculação ficam para a próxima etapa. Em implantação pública, use HTTPS e integre a identidade do backend à autenticação das contas.
+Cadastro, login por e-mail, sessão e validação do token Google são atendidos por este backend. O vínculo familiar ainda usa chaves próprias, separadas do token da conta; por isso, a mesma conta em outra instalação não recupera automaticamente suas chaves ou vínculos. Recuperação, transferência de aparelho e desvinculação ficam para a próxima etapa.
 
 ## Confirmação e limites
 
 `revision` indica a regra salva. O celular salva a resposta localmente antes de informar a revisão recebida na próxima sincronização. `protectionEnabled` só é verdadeiro com o serviço Android conectado. A interface considera sem confirmação recente um aparelho sem contato há mais de 20 segundos.
 
-A proteção retorna à tela inicial ao detectar a abertura de um app bloqueado. Não suspende o pacote no sistema, não lê conteúdo de telas e não é uma solução Device Owner. Apps essenciais, launcher, discador padrão, SMS padrão e a própria Vippela são excluídos; alguns apps de entretenimento pré-instalados, como YouTube, são elegíveis. As últimas regras continuam no aparelho sem internet. Novas regras e liberações precisam de conexão. Desativar o serviço, sair da conta, limpar os dados ou desinstalar interrompe essa proteção.
+A proteção retorna à tela inicial ao detectar um app bloqueado. Nos navegadores compatíveis, o serviço de Acessibilidade lê somente o texto da barra de endereço e compara o domínio localmente; endereços visitados e histórico não são salvos nem enviados ao backend. Não suspende pacotes e não é uma solução Device Owner. Apps essenciais, launcher, discador padrão, SMS padrão e a própria Vippela são excluídos. As últimas regras continuam no aparelho sem internet. Novas regras e liberações precisam de conexão. Desativar o serviço, sair da conta, limpar os dados ou desinstalar interrompe essa proteção.
 
 Pedidos de liberação, tempo de tela, trilhas e relatórios anteriores continuam demonstrativos; as permissões reais são alteradas na tela Aplicativos. O bloqueio se aplica ao aparelho/instalação vinculado, não a qualquer dispositivo onde o mesmo e-mail seja digitado.
 

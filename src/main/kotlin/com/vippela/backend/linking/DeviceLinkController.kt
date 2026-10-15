@@ -11,10 +11,12 @@ data class LinkCodeResponse(val id: String, val token: String, val expiresAt: St
 data class ConfirmLinkRequest(val token: String, val deviceId: String)
 data class AppInfo(val packageName: String, val label: String)
 data class RuleRequest(val packageName: String, val blocked: Boolean)
+data class DomainRuleRequest(val domain: String, val blocked: Boolean)
 data class SyncRequest(val apps: List<AppInfo>, val appliedRevision: Long, val protectionEnabled: Boolean)
 data class LinkView(val id: String, val memberKey: String, val memberName: String, val ownerName: String,
     val linkedDeviceId: String?, val status: String, val revision: Long, val appliedRevision: Long,
-    val protectionEnabled: Boolean, val lastSeenAt: String?, val apps: List<AppInfo>, val blockedPackages: Set<String>)
+    val protectionEnabled: Boolean, val lastSeenAt: String?, val apps: List<AppInfo>, val blockedPackages: Set<String>,
+    val blockedDomains: Set<String>)
 
 @RestController
 @RequestMapping("/links")
@@ -48,6 +50,7 @@ class DeviceLinkController(private val service: DeviceLinkService) {
     @GetMapping fun list(@RequestHeader("X-Owner-Key") key: String) = service.list(key)
     @GetMapping("/{id}") fun status(@PathVariable id: UUID, @RequestHeader("X-Owner-Key") key: String) = service.ownerView(id, key)
     @PutMapping("/{id}/rule") fun update(@PathVariable id: UUID, @RequestHeader("X-Owner-Key") key: String, @RequestBody request: RuleRequest) = service.update(id, key, request)
+    @PutMapping("/{id}/domain-rule") fun updateDomain(@PathVariable id: UUID, @RequestHeader("X-Owner-Key") key: String, @RequestBody request: DomainRuleRequest) = service.updateDomain(id, key, request)
     @PostMapping("/{id}/sync") fun sync(@PathVariable id: UUID, @RequestHeader("X-Device-Key") key: String, @RequestBody request: SyncRequest) = service.sync(id, key, request)
 }
 

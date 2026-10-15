@@ -8,6 +8,9 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.UUID
+import java.net.IDN
+import java.net.URI
+import java.util.Locale
 
 @Service
 @Transactional
@@ -73,6 +76,16 @@ class DeviceLinkService(private val repo: DeviceLinkRepository) {
         if (changed) target.revision++
         return view(target)
     }
+    fun updateDomain(id: UUID, key: String, request: DomainRuleRequest): LinkView {
+        val target = link(id)
+        authorize(target.ownerKeyHash, key)
+        active(target)
+        val domain = normalizeDomain(request.domain)
+            ?: fail(HttpStatus.BAD_REQUEST, "Domínio inválido")
+        val changed = if (request.blocked) target.blockedDomains.add(domain) else target.blockedDomains.remove(domain)
+        if (changed) target.revision++
+        return view(target)
+    }
     fun sync(id: UUID, key: String, request: SyncRequest): LinkView {
         val target = link(id)
         authorize(target.deviceKeyHash, key)
@@ -135,5 +148,17 @@ class DeviceLinkService(private val repo: DeviceLinkRepository) {
         link.usageZone, link.usage.toMap(), link.icons.toMap())
     private fun view(link: DeviceLink) = LinkView(link.id.toString(), link.memberKey.orEmpty(), link.memberName.orEmpty(),
         link.ownerName.orEmpty(), link.linkedDeviceId, link.status, link.revision, link.appliedRevision,
-        link.protectionEnabled, link.lastSeenAt?.toString(), link.apps.map { AppInfo(it.key, it.value) }.sortedBy { it.label }, link.blockedPackages.toSet())
+        link.protectionEnabled, link.lastSeenAt?.toString(), link.apps.map { AppInfo(it.key, it.value) }.sortedBy { it.label },
+        link.blockedPackages.toSet(), link.blockedDomains.toSet())
+
+    private fun normalizeDomain(value: String): String? {
+        val input = value.trim()
+        if (input.isEmpty() || input.any(Char::isWhitespace) || input.length > 2048) return null
+        val candidate = if ("://" in input) input else "https://$input"
+        val host = runCatching { URI(candidate).host }.getOrNull()?.trimEnd('.') ?: return null
+        val ascii = runCatching { IDN.toASCII(host, IDN.USE_STD3_ASCII_RULES) }.getOrNull()
+            ?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: return null
+        if (ascii.length !in 1..253 || '.' !in ascii || ascii.split('.').any { it.isEmpty() || it.length > 63 }) return null
+        return ascii
+    }
 }
